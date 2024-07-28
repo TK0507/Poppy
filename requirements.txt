@@ -1,0 +1,3 @@
+janome
+numpy
+torch
