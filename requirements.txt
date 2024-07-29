@@ -1,3 +1,6 @@
 janome
+transformers
+fugashi
+ipadic
 torch
-fasttext
+gensim
