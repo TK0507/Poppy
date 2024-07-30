@@ -10,16 +10,16 @@ tort, or otherwise, arising from, out of, or in connection with the
 software or the use or other dealings in the software.
 """
 
-
-from transformers import BertJapaneseTokenizer
-from transformers import BertModel
+from typing import Iterable
+from transformers import BertJapaneseTokenizer, BertModel
 import torch.nn as nn
 import torch.optim as optim
 import torch
+import os
+import poppy_sample as sample
 
 
 class Model:
-
     """
     The Poppy model extends the BERT model. It uses BERT features to
     add new attributes to the text.
@@ -32,12 +32,9 @@ class Model:
         Initializes the model, including the BERT model and the Poppy model.
         """
 
-        self._bert_tokenizer: BertJapaneseTokenizer =\
-            BertJapaneseTokenizer.from_pretrained(
-                'cl-tohoku/bert-base-japanese')
-
-        self._bert: BertModel =\
-            BertModel.from_pretrained('cl-tohoku/bert-base-japanese')
+        self._bert_tokenizer = BertJapaneseTokenizer.from_pretrained(
+            'cl-tohoku/bert-base-japanese')
+        self._bert = BertModel.from_pretrained('cl-tohoku/bert-base-japanese')
 
         self._this_model = nn.Sequential(
             nn.Linear(self._bert.config.hidden_size, 1),
@@ -48,38 +45,32 @@ class Model:
             self._this_model.parameters(), lr=0.001)
         self._this_loss = nn.MSELoss()
 
-    def predict(self, text: str):
-        """
-        Infers the output using BERT and the Poppy model.
-        """
-
+    def _encode(self, text: str):
         inputs = self._bert_tokenizer(
             text, return_tensors='pt', padding=True, truncation=True)
 
         with torch.no_grad():
             outputs = self._bert(**inputs)
 
-        return self._this_model(outputs.last_hidden_state[:, 0, :])
+        return outputs.last_hidden_state[:, 0, :]
 
-    def fit(self, text: str, score: float):
+    def predict(self, text: str):
+        """
+        Infers the output using BERT and the Poppy model.
+        """
+        return self._this_model(self._encode(text))
+
+    def fit(self, sample: sample.Sample):
         """
         Trains the model (excluding the BERT part). It learns a mapping
         between text and an expected score.
         """
-
-        inputs = self._bert_tokenizer(
-            text, return_tensors='pt', padding=True, truncation=True)
-
-        score = torch.tensor([score], dtype=torch.float32).view(1, 1)
+        score = torch.tensor([sample.score], dtype=torch.float32).view(1, 1)
 
         self._this_model.train()
         self._this_optimizer.zero_grad()
 
-        pred_score = self._this_model(self._bert(
-            **inputs).last_hidden_state[:, 0, :])
-
-        # Ensure pred_score and score have the same size
-        pred_score = pred_score.view(-1, 1)
+        pred_score = self._this_model(self._encode(sample.text)).view(-1, 1)
 
         loss = self._this_loss(pred_score, score)
         loss.backward()
@@ -87,35 +78,64 @@ class Model:
 
         return loss.item()
 
+    def fit2(self, samples: Iterable[sample.Sample]):
+        """
+        Trains the model (excluding the BERT part) on a batch of samples.
+        Each sample is a tuple of (text, score).
+        """
+        self._this_model.train()
+        self._this_optimizer.zero_grad()
 
-def main():
+        total_loss = 0.0
+
+        for text, score in samples:
+            score = torch.tensor(
+                [float(score)], dtype=torch.float32).view(1, 1)
+            pred_score = self._this_model(self._encode(text)).view(-1, 1)
+            loss = self._this_loss(pred_score, score)
+            loss.backward()
+            total_loss += loss.item()
+
+        self._this_optimizer.step()
+
+        return total_loss
+
+    def save(self, location: str):
+        torch.save(self._this_model.state_dict(), location)
+
+    def load(self, location: str):
+        if os.path.exists(location):
+            torch.serialization.add_safe_globals([nn.Sequential])
+            self._this_model.load_state_dict(
+                torch.load(location, weights_only=True))
+        else:
+            raise FileNotFoundError(f"No such file or directory: '{location}'")
+
+
+def main(args: dict):
+
+    model_location = args.setdefault(
+        'model-location', './model/poppy-1.0.1.pth')
+
+    sample_location = args.setdefault(
+        'sample-location', './sample/sample-20240730.csv')
 
     model = Model()
 
-    # Sample texts and labels
-    # TODO: Externalizing data
-    # TODO: Preparing more samples
-    texts_and_labels = [
-        ("なんでやねん！", -1.0),
-        ("お前、何言うてんねん！", -1.0),
-        ("まあ、適当にやってくれたらええわ。", 0.0),
-        ("ご確認いただけますでしょうか？", 1.0),
-        ("ありがとうございます", 1.0),
-    ]
+    try:
+        model.load(model_location)
+    except FileNotFoundError:
+        print("Model file not found. Training a new model...")
 
-    num_epochs = 10
-    for epoch in range(num_epochs):
-        epoch_loss = 0
-        for text, pred_score in texts_and_labels:
-            loss = model.fit(text, pred_score)
-            epoch_loss += loss
-        print(f'\rLoading now ... {epoch+1}/{num_epochs}', end='')
+        samples = sample.loads(sample_location)
 
-    for text, score in texts_and_labels:
-        pred_score = model.predict(text)
-        print(f"Text: {text}\n"
-              f"  Predicted: {pred_score.item()}\n"
-              f"  Expected: {score}")
+        num_epochs = 100
+        for epoch in range(num_epochs):
+            epoch_loss = model.fit2(samples)
+            print(f'\rLoading now ... {
+                  epoch+1}/{num_epochs} - Loss: {epoch_loss:.4f}', end='')
+
+        model.save(model_location)
 
     print("POPPYは日本語のテキストの言葉遣いを評価します！")
 
@@ -128,4 +148,7 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+
+    args = {}
+
+    main(args)
