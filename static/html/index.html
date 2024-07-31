@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>POPPY - Text Scoring</title>
+    <script>
+        async function getScore() {
+            const text = document.getElementById('text-input').value;
+            const response = await fetch('http://localhost:8080/api/beta/predict', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ text }),
+            });
+            
+            if (response.ok) {
+                const result = await response.json();
+                if (result.score !== undefined) {
+                    document.getElementById('result').innerText = 'Score: ' + result.score;
+                } else {
+                    document.getElementById('result').innerText = 'Unexpected response format';
+                }
+            } else {
+                document.getElementById('result').innerText = 'Error: ' + response.statusText;
+            }
+        }
+    </script>
+</head>
+<body>
+    <h1>POPPYは日本語テキストの言葉遣いを評価します！</h1>
+    <p>日本語テキストを入力してください：</p>
+    <textarea id="text-input" rows="4" cols="50"></textarea><br>
+    <button onclick="getScore()">Predict Score</button>
+    <p id="result"></p>
+</body>
+</html>

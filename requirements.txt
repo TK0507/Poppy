@@ -3,4 +3,7 @@ transformers
 fugashi
 ipadic
 torch
+flask
+flask-cors
+tqdm
 gensim

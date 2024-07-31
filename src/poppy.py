@@ -10,13 +10,35 @@ tort, or otherwise, arising from, out of, or in connection with the
 software or the use or other dealings in the software.
 """
 
+from flask import Flask
+from flask import jsonify, request
+from flask_cors import CORS
 from typing import Iterable
-from transformers import BertJapaneseTokenizer, BertModel
+from transformers import BertJapaneseTokenizer
+from transformers import BertModel
 import torch.nn as nn
 import torch.optim as optim
 import torch
 import os
 import poppy_sample as sample
+
+
+BERT_TOKENIZER = \
+    BertJapaneseTokenizer.from_pretrained('cl-tohoku/bert-base-japanese')
+
+BERT = \
+    BertModel.from_pretrained('cl-tohoku/bert-base-japanese')
+
+
+def bertify(text: str):
+    """
+    Convert text into features using the BERT model.
+    """
+    inputs = BERT_TOKENIZER(
+        text, return_tensors='pt', padding=True, truncation=True)
+    with torch.no_grad():
+        outputs = BERT(**inputs)
+    return outputs.last_hidden_state[:, 0, :]
 
 
 class Model:
@@ -32,49 +54,39 @@ class Model:
         Initializes the model, including the BERT model and the Poppy model.
         """
 
-        self._bert_tokenizer = BertJapaneseTokenizer.from_pretrained(
-            'cl-tohoku/bert-base-japanese')
-        self._bert = BertModel.from_pretrained('cl-tohoku/bert-base-japanese')
-
-        self._this_model = nn.Sequential(
-            nn.Linear(self._bert.config.hidden_size, 1),
+        self._model = nn.Sequential(
+            nn.Linear(n := BERT.config.hidden_size, n*2),
+            nn.Tanh(),
+            nn.Linear(n*2, 1),
             nn.Tanh(),
         )
-
-        self._this_optimizer = optim.Adam(
-            self._this_model.parameters(), lr=0.001)
-        self._this_loss = nn.MSELoss()
-
-    def _encode(self, text: str):
-        inputs = self._bert_tokenizer(
-            text, return_tensors='pt', padding=True, truncation=True)
-
-        with torch.no_grad():
-            outputs = self._bert(**inputs)
-
-        return outputs.last_hidden_state[:, 0, :]
 
     def predict(self, text: str):
         """
         Infers the output using BERT and the Poppy model.
         """
-        return self._this_model(self._encode(text))
+        return self._model(bertify(text))[0, 0].item()
 
     def fit(self, sample: sample.Sample):
         """
         Trains the model (excluding the BERT part). It learns a mapping
         between text and an expected score.
         """
+        self._model.train()
+
+        optimizer = optim.Adam(self._model.parameters(), lr=0.0001)
+        optimizer.zero_grad()
+
+        lossfunc = nn.MSELoss()
+
         score = torch.tensor([sample.score], dtype=torch.float32).view(1, 1)
 
-        self._this_model.train()
-        self._this_optimizer.zero_grad()
+        pred_score = self._model(bertify(sample.text)).view(-1, 1)
 
-        pred_score = self._this_model(self._encode(sample.text)).view(-1, 1)
-
-        loss = self._this_loss(pred_score, score)
+        loss = lossfunc(pred_score, score)
         loss.backward()
-        self._this_optimizer.step()
+
+        optimizer.step()
 
         return loss.item()
 
@@ -83,44 +95,46 @@ class Model:
         Trains the model (excluding the BERT part) on a batch of samples.
         Each sample is a tuple of (text, score).
         """
-        self._this_model.train()
-        self._this_optimizer.zero_grad()
 
-        total_loss = 0.0
+        self._model.train()
+
+        optimizer = optim.Adam(self._model.parameters(), lr=0.0001)
+        optimizer.zero_grad()
+
+        lossfunc = nn.HuberLoss()
+        loss_sum = 0.0
 
         for text, score in samples:
             score = torch.tensor(
                 [float(score)], dtype=torch.float32).view(1, 1)
-            pred_score = self._this_model(self._encode(text)).view(-1, 1)
-            loss = self._this_loss(pred_score, score)
+            pred_score = self._model(bertify(text)).view(-1, 1)
+            loss = lossfunc(pred_score, score)
             loss.backward()
-            total_loss += loss.item()
+            loss_sum += loss.item()
 
-        self._this_optimizer.step()
+        optimizer.step()
 
-        return total_loss
+        return loss_sum
 
     def save(self, location: str):
-        torch.save(self._this_model.state_dict(), location)
+        torch.save(self._model.state_dict(), location)
 
     def load(self, location: str):
         if os.path.exists(location):
             torch.serialization.add_safe_globals([nn.Sequential])
-            self._this_model.load_state_dict(
+            self._model.load_state_dict(
                 torch.load(location, weights_only=True))
         else:
             raise FileNotFoundError(f"No such file or directory: '{location}'")
 
 
-def main(args: dict):
+def model_init(model: Model, args: dict):
 
     model_location = args.setdefault(
-        'model-location', './model/poppy-1.0.1.pth')
+        'model-location', './model/poppy-beta.pth')
 
     sample_location = args.setdefault(
         'sample-location', './sample/sample-20240730.csv')
-
-    model = Model()
 
     try:
         model.load(model_location)
@@ -132,23 +146,35 @@ def main(args: dict):
         num_epochs = 100
         for epoch in range(num_epochs):
             epoch_loss = model.fit2(samples)
-            print(f'\rLoading now ... {
-                  epoch+1}/{num_epochs} - Loss: {epoch_loss:.4f}', end='')
+            print(f'\rLoading now ... {epoch+1}/{num_epochs}'
+                  f' - Loss: {epoch_loss:.4f}', end='')
+
+        print()
 
         model.save(model_location)
 
-    print("POPPYは日本語のテキストの言葉遣いを評価します！")
 
-    text = input('\n日本語のテキストを入力してください！ (終了するには"!EXIT"を入力する)\n> ')
+model = Model()
 
-    while text != '!EXIT':
-        print(f'\n言葉遣いスコア: {model.predict(text)[0, 0]}\n')
+app = Flask(__name__)
+CORS(app)
 
-        text = input('\n日本語のテキストを入力してください！ (終了するには"!EXIT"を入力する)\n> ')
+
+@app.route('/api/beta/predict', methods=['POST'])
+def _api_beta_predict():
+
+    data = request.json
+    text = data.get('text')
+
+    if not text:
+        return jsonify({'error': 'No sample provided!'})
+
+    return jsonify({'score': model.predict(text)})
 
 
 if __name__ == '__main__':
 
     args = {}
+    model_init(model, args)
 
-    main(args)
+    app.run(host='localhost', port=8080)
