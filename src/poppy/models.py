@@ -13,20 +13,25 @@ software or the use or other dealings in the software.
 from typing import Iterable
 from poppy.datasets import Sample
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 import torch
 import tqdm
 
 
-class Model(nn.Sequential):
+class Model(nn.Module):
 
     def __init__(self) -> None:
-        super().__init__(
-            nn.Linear(768, 768*2),
-            nn.Mish(),
-            nn.Linear(768*2, 1),
-            nn.Tanh(),
-        )
+        super().__init__()
+        self._layer_1 = nn.Linear(768, 768*2)
+        self._layer_2 = nn.Linear(768*2, 768)
+        self._layer_3 = nn.Linear(768, 3)
+
+    def forward(self, x: torch.Tensor):
+        x = F.mish(self._layer_1(x))
+        x = F.mish(self._layer_2(x))
+        x = F.sigmoid(self._layer_3(x))
+        return x
 
 
 class ModelTrainer:
@@ -40,7 +45,7 @@ class ModelTrainer:
         Initializes the model, including the BERT model and the Poppy model.
         """
         self.model = model
-        self.model_optimizer = optim.Adam(self.model.parameters(), lr=0.00001)
+        self.model_optimizer = optim.Adam(self.model.parameters(), 0.00001)
         self.model_criterion = nn.MSELoss()
 
     def train_once(self, samples: Iterable[Sample]):
@@ -56,10 +61,10 @@ class ModelTrainer:
             loss.backward()
             lossresult += loss.item()
         self.model_optimizer.step()
-        return lossresult
+        return lossresult / len(samples)
 
     def train(self, samples: Iterable[Sample], maxcount=100):
-        for epoch in tqdm.tqdm(range(maxcount)):
+        for _ in tqdm.tqdm(range(maxcount)):
             lossresult = self.train_once(samples)
         return lossresult
 

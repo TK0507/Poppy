@@ -1,38 +1,103 @@
 <!DOCTYPE html>
 <html lang="ja">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>POPPY - Text Scoring</title>
+    <title>Poppyモデルクライアント</title>
     <script>
-        async function getScore() {
-            const text = document.getElementById('text-input').value;
-            const response = await fetch('http://localhost:8080/api/beta/predict', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ text }),
-            });
-            
-            if (response.ok) {
-                const result = await response.json();
-                if (result.score !== undefined) {
-                    document.getElementById('result').innerText = 'Score: ' + result.score;
-                } else {
-                    document.getElementById('result').innerText = 'Unexpected response format';
+        async function predict() {
+            const text = document.getElementById('predict-text').value;
+            if (!text) {
+                alert('予測するテキストを入力してください!');
+                return;
+            }
+
+            try {
+                const response = await fetch('http://localhost:8080/api/beta/predict', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ text })
+                });
+
+                if (!response.ok) {
+                    const errorMessage = `エラーコード: ${response.status} ${response.statusText}`;
+                    alert('ネットワークエラー: ' + errorMessage);
+                    return;
                 }
-            } else {
-                document.getElementById('result').innerText = 'Error: ' + response.statusText;
+
+                const data = await response.json();
+
+                if (!data.content) {
+                    alert('サーバーからのデータ形式が不正です');
+                    return;
+                }
+
+                // デバッグ用のログ出力
+                console.log('サーバーからのデータ:', data);
+
+                // データを数値に変換し、小数点以下を切り捨ててパーセント表示
+                const [politeness, subjectivity, friendliness] = data.content.map(value =>
+                    Math.floor(parseFloat(value) * 100)
+                );
+
+                // デバッグ用のログ出力
+                console.log('変換後の値:', { politeness, subjectivity, friendliness });
+
+                document.getElementById('predict-result').textContent =
+                    `予測結果: 敬語度 ${politeness}% 主観性 ${subjectivity}% 友好度 ${friendliness}%`;
+            } catch (error) {
+                console.error('エラー:', error);
+                alert('エラーが発生しました: ' + error.message);
+            }
+        }
+
+        async function provide() {
+            const text = document.getElementById('provide-text').value;
+            if (!text) {
+                alert('提供するテキストを入力してください!');
+                return;
+            }
+
+            try {
+                const response = await fetch('http://localhost:8080/api/beta/provide', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ text })
+                });
+
+                if (!response.ok) {
+                    const errorMessage = `エラーコード: ${response.status} ${response.statusText}`;
+                    alert('ネットワークエラー: ' + errorMessage);
+                    return;
+                }
+
+                alert('データが正常に提供されました!');
+            } catch (error) {
+                console.error('エラー:', error);
+                alert('エラーが発生しました: ' + error.message);
             }
         }
     </script>
 </head>
+
 <body>
-    <h1>POPPYは日本語テキストの言葉遣いを評価します！</h1>
-    <p>日本語テキストを入力してください：</p>
-    <textarea id="text-input" rows="4" cols="50"></textarea><br>
-    <button onclick="getScore()">Predict Score</button>
-    <p id="result"></p>
+    <h1>Poppyモデルクライアント</h1>
+
+    <h2>予測</h2>
+    <textarea id="predict-text" rows="4" cols="50" placeholder="予測するテキストを入力してください"></textarea><br>
+    <button onclick="predict()">送信</button>
+    <p id="predict-result"></p>
+
+    <!--
+    <h2>データ提供</h2>
+    <textarea id="provide-text" rows="4" cols="50" placeholder="提供するテキストを入力してください"></textarea><br>
+    <button onclick="provide()">送信</button>
+    -->
 </body>
+
 </html>

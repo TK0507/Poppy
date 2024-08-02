@@ -13,11 +13,11 @@ model = Model()
 model_trainer = ModelTrainer(model)
 
 app = Flask(__name__)
-CORS(app)
+app_cors = CORS(app)
 
 
 @app.route('/api/beta/predict', methods=['POST'])
-def _api_beta_predict():
+def __api_beta_predict():
 
     data = request.json
     text = data.get('text')
@@ -25,19 +25,19 @@ def _api_beta_predict():
     if not text:
         return jsonify({'error': 'No sample provided!'})
 
-    return jsonify({'score': model(bertify(text)).item()})
+    return jsonify({'content': model(bertify(text)).tolist()})
 
 
 def main():
 
-    samples = load_samples('./sample/sample-20240801.csv')
+    samples = load_samples('./sample/momotaro-params.csv')
 
     if not os.path.exists('./model/poppy-beta.pth'):
-        print('loss', model_trainer.train(samples, maxcount=1000))
+        print('loss:', model_trainer.train(samples, maxcount=100))
         save_model('./model/poppy-beta.pth', model)
     else:
         load_model('./model/poppy-beta.pth', model)
-        print('loss', model_trainer.train(samples, maxcount=100))
+        print('loss:', model_trainer.train(samples, maxcount=100))
         save_model('./model/poppy-beta.pth', model)
 
     app.run(host='localhost', port=8080)
