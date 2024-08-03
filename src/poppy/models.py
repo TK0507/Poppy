@@ -22,15 +22,19 @@ import tqdm
 class Model(nn.Module):
 
     def __init__(self) -> None:
-        super().__init__()
-        self._layer_1 = nn.Linear(768, 768*2)
-        self._layer_2 = nn.Linear(768*2, 768)
-        self._layer_3 = nn.Linear(768, 3)
+        super(Model, self).__init__()
+        self._layer_1 = nn.Linear(768, 768 * 2)
+        self._layer_2 = nn.Linear(768 * 2, 768)
+        self._layer_3 = nn.Linear(768, 768)
+        self._layer_4 = nn.Linear(768, 768)
+        self._layer_5 = nn.Linear(768, 3)
 
     def forward(self, x: torch.Tensor):
         x = F.mish(self._layer_1(x))
         x = F.mish(self._layer_2(x))
-        x = F.sigmoid(self._layer_3(x))
+        x = F.mish(self._layer_3(x))
+        x = F.mish(self._layer_4(x))
+        x = F.logsigmoid(self._layer_5(x))
         return x
 
 
@@ -45,8 +49,10 @@ class ModelTrainer:
         Initializes the model, including the BERT model and the Poppy model.
         """
         self.model = model
-        self.model_optimizer = optim.Adam(self.model.parameters(), 0.00001)
+        self.model_optimizer = optim.Adam(self.model.parameters(), lr=0.0001)
         self.model_criterion = nn.MSELoss()
+        self.scheduler = optim.lr_scheduler.StepLR(
+            self.model_optimizer, step_size=16, gamma=0.837)
 
     def train_once(self, samples: Iterable[Sample]):
         """
@@ -55,17 +61,19 @@ class ModelTrainer:
         """
         self.model.train()
         self.model_optimizer.zero_grad()
-        lossresult = 0.0
-        for sample in samples:
+
+        losssum = 0.0
+        for sample in tqdm.tqdm(samples):
             loss = self.model_criterion(self.model(sample.ivec), sample.ovec)
             loss.backward()
-            lossresult += loss.item()
+            losssum += loss.item()
         self.model_optimizer.step()
-        return lossresult / len(samples)
+        self.scheduler.step()  # Update the scheduler after each batch
+        return losssum / len(samples)
 
     def train(self, samples: Iterable[Sample], maxcount=100):
         for _ in tqdm.tqdm(range(maxcount)):
-            lossresult = self.train_once(samples)
+            print('\nloss:', lossresult := self.train_once(samples))
         return lossresult
 
 

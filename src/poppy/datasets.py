@@ -56,7 +56,7 @@ def save_samples(location: str, samples: Iterable[Sample]):
 
 if __name__ == '__main__':
 
-    file = open('./sample/momotaro.csv', 'r', encoding='utf-8')
+    file = open('./sample/urashima.csv', 'r', encoding='utf-8')
 
     samples = []
 
@@ -68,4 +68,4 @@ if __name__ == '__main__':
 
     file.close()
 
-    save_samples('./sample/momotaro-params.csv', samples)
+    save_samples('./sample/urashima-params.csv', samples)

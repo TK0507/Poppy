@@ -54,20 +54,34 @@
             }
         }
 
-        async function provide() {
+        async function upload() {
             const text = document.getElementById('provide-text').value;
+            const scores = [
+                parseFloat(document.getElementById('politeness').value),
+                parseFloat(document.getElementById('subjectivity').value),
+                parseFloat(document.getElementById('friendliness').value)
+            ];
+
             if (!text) {
                 alert('提供するテキストを入力してください!');
                 return;
             }
+            if (scores.some(isNaN)) {
+                alert('スコアは数値である必要があります!');
+                return;
+            }
+            if (scores.some(score => score < 0 || score > 1)) {
+                alert('スコアは0.0〜1.0の範囲である必要があります!');
+                return;
+            }
 
             try {
-                const response = await fetch('http://localhost:8080/api/beta/provide', {
+                const response = await fetch('http://localhost:8080/api/beta/upload', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ text })
+                    body: JSON.stringify({ text, scores })
                 });
 
                 if (!response.ok) {
@@ -76,12 +90,14 @@
                     return;
                 }
 
+                const data = await response.json();
                 alert('データが正常に提供されました!');
             } catch (error) {
                 console.error('エラー:', error);
                 alert('エラーが発生しました: ' + error.message);
             }
         }
+
     </script>
 </head>
 
@@ -93,11 +109,15 @@
     <button onclick="predict()">送信</button>
     <p id="predict-result"></p>
 
-    <!--
     <h2>データ提供</h2>
     <textarea id="provide-text" rows="4" cols="50" placeholder="提供するテキストを入力してください"></textarea><br>
-    <button onclick="provide()">送信</button>
-    -->
+    <label for="politeness">敬語度:</label>
+    <input type="number" id="politeness" min="0" max="1" step="0.1" placeholder="0.0〜1.0"><br>
+    <label for="subjectivity">主観性:</label>
+    <input type="number" id="subjectivity" min="0" max="1" step="0.1" placeholder="0.0〜1.0"><br>
+    <label for="friendliness">友好度:</label>
+    <input type="number" id="friendliness" min="0" max="1" step="0.1" placeholder="0.0〜1.0"><br>
+    <button onclick="upload()">送信</button>
 </body>
 
 </html>
